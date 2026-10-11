@@ -1,6 +1,6 @@
-import { communicationContext } from "./context";
-import type { MailMessage } from "./mail-message";
-import { getMailTranslator } from "./translator";
+import { communicationContext } from "./context.js";
+import type { MailMessage } from "./mail-message.js";
+import { getMailTranslator } from "./translator.js";
 
 /**
  * Mailables - the domain vocabulary of email.

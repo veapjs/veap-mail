@@ -1,5 +1,5 @@
 import { AppError } from "@veap/kernel";
-import type { IMailer } from "./mailer";
+import type { IMailer } from "./mailer.js";
 
 /**
  * Typed boundary between the communication use cases and their consumers

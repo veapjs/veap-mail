@@ -1,14 +1,27 @@
+import { Application, Container, container } from "@veap/kernel";
 import { beforeEach, describe, expect, it } from "vitest";
-import { bindCommunicationContext, communicationContext } from "../src/context";
+import {
+  bindCommunicationContext,
+  communicationContext,
+} from "../src/context.js";
 import {
   send2FACode,
   sendMail,
   sendRecoveryCode,
   sendResetPassword,
   sendVerifyEmail,
-} from "../src/mail";
-import type { MailMessage } from "../src/mail-message";
-import { getMailTranslator, setMailTranslatorFactory } from "../src/translator";
+} from "../src/mail.js";
+import type { MailMessage } from "../src/mail-message.js";
+import { CUSTOM_MAILER, MAIL_SERVICE, MAILER } from "../src/mailer.js";
+import {
+  CommunicationServiceProvider,
+  MailServiceProvider,
+} from "../src/provider.js";
+import {
+  getMailTranslator,
+  setMailTranslatorFactory,
+} from "../src/translator.js";
+import "../src/composition.js";
 
 /**
  * Mailables - where email semantics live.
@@ -60,22 +73,28 @@ describe("mailables", () => {
   it("sendResetPassword builds a password-reset message", async () => {
     await sendResetPassword("u@x.dev", "ABC123");
 
-    expect(sent[0].subject).toBe("Password Reset");
-    expect(sent[0].text).toBe("Verify password reset with code: ABC123");
+    expect(sent).toHaveLength(1);
+    const msg = sent[0]!;
+    expect(msg.subject).toBe("Password Reset");
+    expect(msg.text).toBe("Verify password reset with code: ABC123");
   });
 
   it("sendRecoveryCode builds a recovery-code message", async () => {
     await sendRecoveryCode("u@x.dev", "RECOVERY-9");
 
-    expect(sent[0].subject).toBe("Recovery Code");
-    expect(sent[0].text).toBe("Your recovery code is: RECOVERY-9");
+    expect(sent).toHaveLength(1);
+    const msg = sent[0]!;
+    expect(msg.subject).toBe("Recovery Code");
+    expect(msg.text).toBe("Your recovery code is: RECOVERY-9");
   });
 
   it("send2FACode builds a 2FA message", async () => {
     await send2FACode("u@x.dev", "654321");
 
-    expect(sent[0].subject).toBe("Your 2FA Code");
-    expect(sent[0].text).toBe(
+    expect(sent).toHaveLength(1);
+    const msg = sent[0]!;
+    expect(msg.subject).toBe("Your 2FA Code");
+    expect(msg.text).toBe(
       "Your verification code is: 654321. It will expire in 10 minutes.",
     );
   });
@@ -98,5 +117,60 @@ describe("mailables", () => {
     // The port itself is a single-method delivery contract.
     const keys = Object.keys(communicationContext().mailer);
     expect(keys.sort()).toEqual(["sendMail"]);
+  });
+
+  it("correctly interpolates parameters after CommunicationServiceProvider boots", async () => {
+    const localContainer = new Container();
+    const provider = new CommunicationServiceProvider(localContainer);
+    provider.register();
+    await provider.boot();
+
+    // After boot, verify that default translator interpolates parameters
+    const t = await getMailTranslator();
+    expect(t("Code: {code}", { code: "999888" })).toBe("Code: 999888");
+
+    // Send email using real boot context
+    await sendVerifyEmail("user@example.com", "999888");
+    const lastContext = communicationContext();
+    expect(lastContext.mailer).toBeDefined();
+  });
+
+  it("supports Application.configure().withMail() and withCommunication()", async () => {
+    await Application.shutdown();
+    const app = Application.configure().withMail().create();
+    expect(app).toBeDefined();
+    await app.bootstrap();
+
+    const boundMailer = await container.resolve(MAILER);
+    expect(boundMailer).toBeDefined();
+    expect(await container.resolve(MAIL_SERVICE)).toBe(boundMailer);
+  });
+
+  it("supports custom transport with CUSTOM_MAILER token", async () => {
+    const customMailer = {
+      sendMail: async (msg: MailMessage) => {
+        sent.push(msg);
+      },
+    };
+
+    const localContainer = new Container();
+    localContainer.register({
+      token: CUSTOM_MAILER,
+      useValue: customMailer,
+      singleton: true,
+    });
+
+    const originalEnv = process.env.MAIL_TRANSPORT;
+    try {
+      process.env.MAIL_TRANSPORT = "custom";
+      const provider = new MailServiceProvider(localContainer);
+      provider.register();
+      await provider.boot();
+
+      const resolved = await localContainer.resolve(MAILER);
+      expect(resolved).toBe(customMailer);
+    } finally {
+      process.env.MAIL_TRANSPORT = originalEnv;
+    }
   });
 });

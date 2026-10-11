@@ -1,4 +1,5 @@
-import type { MailMessage } from "./mail-message";
+import type { Token } from "@veap/kernel";
+import type { MailMessage } from "./mail-message.js";
 
 /**
  * Mailer port.
@@ -24,7 +25,12 @@ export interface IMailer {
  * boundaries, the same reason the container keys class tokens with
  * `Symbol.for(...)`.
  */
-export const MAILER = Symbol.for("veap:communication:mailer");
+export const MAILER: Token<IMailer> = Symbol.for("veap:communication:mailer");
+
+/**
+ * Backward compatibility alias for the mailer port token.
+ */
+export const MAIL_SERVICE: Token<IMailer> = MAILER;
 
 /**
  * Injection token for a custom transport supplied by the host application.
@@ -33,4 +39,6 @@ export const MAILER = Symbol.for("veap:communication:mailer");
  * this token (e.g. SES, Postmark, Resend, an outbox pattern…) to route all
  * mail through your own delivery system without touching the framework.
  */
-export const CUSTOM_MAILER = Symbol.for("veap:communication:custom-mailer");
+export const CUSTOM_MAILER: Token<IMailer> = Symbol.for(
+  "veap:communication:custom-mailer",
+);

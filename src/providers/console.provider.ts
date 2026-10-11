@@ -1,9 +1,8 @@
-import type { MailMessage } from ".././mail-message";
-import type { IMailer } from ".././mailer";
+import type { MailMessage } from "../mail-message.js";
+import type { IMailer } from "../mailer.js";
 
 /**
- * Console transport implementing the {@link IMailer} port.
- *
+ * Console transport implementing the {@link IMailer} port.\n *
  * A pure delivery service for development and testing: prints the
  * `MailMessage` instead of dialling an SMTP server. Selected with
  * `MAIL_TRANSPORT=console`. It knows nothing about message semantics -

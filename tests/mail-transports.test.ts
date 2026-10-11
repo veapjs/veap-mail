@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { MailMessage } from "../src/mail-message";
-import type { IMailer } from "../src/mailer";
-import { ConsoleMailService } from "../src/providers/console.provider";
-import { NodemailerMailService } from "../src/providers/nodemailer.provider";
+import type { MailMessage } from "../src/mail-message.js";
+import type { IMailer } from "../src/mailer.js";
+import { ConsoleMailService } from "../src/providers/console.provider.js";
+import { NodemailerMailService } from "../src/providers/nodemailer.provider.js";
 
 /**
  * Transports - the swappable delivery services behind the IMailer port.
@@ -27,9 +27,13 @@ export const interpolatingTranslator = () =>
 
 const fakeConfig = (over: Record<string, string | undefined> = {}) => ({
   getService: () => over.service ?? "gmail",
+  getHost: () => over.host,
+  getPort: () => over.port,
+  getSecure: () => (over.secure ? over.secure === "true" : undefined),
   getUsername: () => over.username,
   getPassword: () => over.password,
   getFromAddress: () => over.from,
+  getFromName: () => over.fromName,
 });
 
 describe("NodemailerMailService (DTO mapping, pure delivery)", () => {
@@ -73,6 +77,27 @@ describe("NodemailerMailService (DTO mapping, pure delivery)", () => {
       fakeConfig({ username: "bot@veap.dev" }),
     );
     expect(service.defaultFrom).toBe("Veap <bot@veap.dev>");
+  });
+
+  it("formats from-address with custom fromName", () => {
+    const service = new NodemailerMailService(
+      fakeConfig({
+        from: "info@mycorp.com",
+        fromName: "MyCorp Support",
+      }),
+    );
+    expect(service.defaultFrom).toBe("MyCorp Support <info@mycorp.com>");
+  });
+
+  it("initializes transport with host and port (SMTP/Mailpit)", () => {
+    const service = new NodemailerMailService(
+      fakeConfig({
+        host: "mailpit",
+        port: "1025",
+        from: "noreply@app.local",
+      }),
+    );
+    expect(service.defaultFrom).toBe("noreply@app.local");
   });
 
   it("passes structured recipients, attachments and priority through", () => {

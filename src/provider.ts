@@ -1,10 +1,10 @@
 import { ConfigService, logger, ServiceProvider } from "@veap/kernel";
-import { bindCommunicationContext } from "./context";
-import type { IMailer } from "./mailer";
-import { CUSTOM_MAILER, MAILER } from "./mailer";
-import { ConsoleMailService } from "./providers/console.provider";
-import { NodemailerMailService } from "./providers/nodemailer.provider";
-import { setMailTranslatorFactory } from "./translator";
+import { bindCommunicationContext } from "./context.js";
+import type { IMailer } from "./mailer.js";
+import { CUSTOM_MAILER, MAILER } from "./mailer.js";
+import { ConsoleMailService } from "./providers/console.provider.js";
+import { NodemailerMailService } from "./providers/nodemailer.provider.js";
+import { setMailTranslatorFactory } from "./translator.js";
 
 /**
  * Composition root of the communication context.
@@ -13,8 +13,8 @@ import { setMailTranslatorFactory } from "./translator";
  * and binds it into `CommunicationContext`, so facades and services never
  * look transports up themselves:
  *
- * - `smtp` (default) - Nodemailer (`MAIL_SERVICE`, `MAIL_USERNAME`/`MAIL_PASSWORD`
- *   or `GOOGLE_SMTP_APP_*`, `MAIL_FROM_ADDRESS`)
+ * - `smtp` (default) - Nodemailer (`MAIL_SERVICE`, `MAIL_HOST`, `MAIL_PORT`,
+ *   `MAIL_USERNAME`/`MAIL_PASSWORD` or `GOOGLE_SMTP_APP_*`, `MAIL_FROM_ADDRESS`)
  * - `console` - logs the message; dev/test with zero mail configuration
  * - `custom` - resolves `CUSTOM_MAILER`; bring your own SES/Postmark/Resend…
  */
@@ -27,29 +27,56 @@ export class CommunicationServiceProvider extends ServiceProvider {
     // selects another transport.
     this.container.register({
       token: MAILER,
-      useFactory: (config: ConfigService) =>
-        new NodemailerMailService({
-          getService: () => config.get("MAIL_SERVICE"),
+      useFactory: (config?: ConfigService) => {
+        const getEnv = (key: string): string | undefined => {
+          return (
+            config?.get?.(key) ??
+            (typeof process !== "undefined" ? process.env[key] : undefined)
+          );
+        };
+
+        return new NodemailerMailService({
+          getService: () => getEnv("MAIL_SERVICE"),
+          getHost: () => getEnv("MAIL_HOST"),
+          getPort: () => getEnv("MAIL_PORT"),
+          getSecure: () => {
+            const val = getEnv("MAIL_SECURE");
+            return val ? val === "true" || val === "1" : undefined;
+          },
+          getIgnoreTLS: () => {
+            const val = getEnv("MAIL_IGNORE_TLS");
+            return val ? val === "true" || val === "1" : undefined;
+          },
           getUsername: () =>
-            config.get("GOOGLE_SMTP_APP_USERNAME") ??
-            config.get("MAIL_USERNAME"),
+            getEnv("GOOGLE_SMTP_APP_USERNAME") ?? getEnv("MAIL_USERNAME"),
           getPassword: () =>
-            config.get("GOOGLE_SMTP_APP_PASSWORD") ??
-            config.get("MAIL_PASSWORD"),
-          getFromAddress: () => config.get("MAIL_FROM_ADDRESS"),
-        }),
+            getEnv("GOOGLE_SMTP_APP_PASSWORD") ?? getEnv("MAIL_PASSWORD"),
+          getFromAddress: () => getEnv("MAIL_FROM_ADDRESS"),
+          getFromName: () => getEnv("MAIL_FROM_NAME"),
+        });
+      },
       inject: [ConfigService],
       singleton: true,
     });
   }
 
   async boot(): Promise<void> {
-    // Bind the intl translation factory for transport templates (adapters
-    // must not import the package's own entry points - ADR-006). It is
-    // invoked per send, so the locale reflects the current request.
-    setMailTranslatorFactory(async () => (key: string) => key);
+    // Bind the default translation factory that supports `{placeholder}`
+    // interpolation into the message text.
+    setMailTranslatorFactory(
+      async () => (key: string, params?: Record<string, unknown>) => {
+        if (!params) return key;
+        return Object.entries(params).reduce(
+          (acc, [k, v]) => acc.replaceAll(`{${k}}`, String(v)),
+          key,
+        );
+      },
+    );
 
-    const config = await this.container.resolve(ConfigService);
+    const config = this.container.has(ConfigService)
+      ? await this.container.resolve(ConfigService)
+      : undefined;
+
     const mailer = await this.selectTransport(config);
 
     // Rebind the port token to the selected transport and expose it through
@@ -67,8 +94,15 @@ export class CommunicationServiceProvider extends ServiceProvider {
     );
   }
 
-  private async selectTransport(config: ConfigService): Promise<IMailer> {
-    const transport = config.get("MAIL_TRANSPORT")?.trim().toLowerCase();
+  private async selectTransport(config?: ConfigService): Promise<IMailer> {
+    const getVal = (key: string): string | undefined => {
+      return (
+        config?.get?.(key) ??
+        (typeof process !== "undefined" ? process.env[key] : undefined)
+      );
+    };
+
+    const transport = getVal("MAIL_TRANSPORT")?.trim().toLowerCase();
 
     if (transport === "custom") {
       if (!this.container.has(CUSTOM_MAILER)) {
@@ -84,22 +118,22 @@ export class CommunicationServiceProvider extends ServiceProvider {
     }
 
     const hasSmtpCredentials =
-      Boolean(
-        config.get("GOOGLE_SMTP_APP_USERNAME") || config.get("MAIL_USERNAME"),
-      ) &&
-      Boolean(
-        config.get("GOOGLE_SMTP_APP_PASSWORD") || config.get("MAIL_PASSWORD"),
-      );
+      Boolean(getVal("GOOGLE_SMTP_APP_USERNAME") || getVal("MAIL_USERNAME")) &&
+      Boolean(getVal("GOOGLE_SMTP_APP_PASSWORD") || getVal("MAIL_PASSWORD"));
 
-    if (!transport && !hasSmtpCredentials) {
+    const hasSmtpHostOrService = Boolean(
+      getVal("MAIL_HOST") || getVal("MAIL_SERVICE"),
+    );
+
+    if (!transport && !hasSmtpCredentials && !hasSmtpHostOrService) {
       logger.warn(
         "veap:communication",
-        "MAIL_TRANSPORT is not set and no SMTP credentials (MAIL_USERNAME/MAIL_PASSWORD) are configured. Defaulting to ConsoleMailService (emails will be logged to server console).",
+        "MAIL_TRANSPORT is not set and no SMTP credentials (MAIL_USERNAME/MAIL_PASSWORD) or host (MAIL_HOST) are configured. Defaulting to ConsoleMailService (emails will be logged to server console).",
       );
       return new ConsoleMailService((line) => logger.info("veap:mail", line));
     }
 
-    // Default ("smtp" / unset with credentials): whatever register() wired - Nodemailer.
+    // Default ("smtp" / unset with credentials/host): whatever register() wired - Nodemailer.
     return this.container.resolve<IMailer>(MAILER);
   }
 }

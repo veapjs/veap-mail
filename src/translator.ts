@@ -14,6 +14,20 @@ export type Translator = (
 let translatorFactory: (() => Promise<Translator>) | null = null;
 
 /**
+ * Helper to interpolate template placeholders like `{name}` or `{code}`.
+ */
+export function interpolateMailText(
+  text: string,
+  params?: Record<string, unknown>,
+): string {
+  if (!params) return text;
+  return Object.entries(params).reduce(
+    (acc, [k, v]) => acc.replaceAll(`{${k}}`, String(v)),
+    text,
+  );
+}
+
+/**
  * Binds the translation factory. Invoked per message build, so the locale
  * always reflects the current request.
  */
@@ -29,12 +43,12 @@ export function setMailTranslatorFactory(
  * (unit tests, early boot).
  */
 export async function getMailTranslator(): Promise<Translator> {
-  if (translatorFactory) return translatorFactory();
-  return (key, params) =>
-    params
-      ? Object.entries(params).reduce(
-          (acc, [k, v]) => acc.replaceAll(`{${k}}`, String(v)),
-          key,
-        )
-      : key;
+  if (translatorFactory) {
+    const fn = await translatorFactory();
+    return (key, params) => {
+      const translated = fn(key, params);
+      return interpolateMailText(translated, params);
+    };
+  }
+  return (key, params) => interpolateMailText(key, params);
 }
