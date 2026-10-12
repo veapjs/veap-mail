@@ -1,6 +1,6 @@
 {
   "name": "@veap/mail",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Mail and communication transport abstraction for Veap",
   "bugs": "https://github.com/veapjs/veap-mail/issues",
   "repository": {
@@ -28,7 +28,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@veap/kernel": "0.1.2",
+    "@veap/kernel": "0.1.3",
     "nodemailer": "^10.0.1"
   },
   "devDependencies": {
