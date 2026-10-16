@@ -94,7 +94,7 @@ import { CUSTOM_MAILER, type IMailer, type MailMessage } from "@veap/mail";
 
 export class ResendMailService implements IMailer {
   async send(message: MailMessage): Promise<void> {
-    // Send via third-party SDK (e.g., resend.emails.send)
+    // Send via third-party SDK (for example, resend.emails.send)
   }
 }
 
